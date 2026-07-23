@@ -324,6 +324,7 @@
   <div class="footer-actions">
     <button class="clear-btn" id="clear-btn" onclick="clearDone()">🗑️ 買った物をまとめて削除</button>
     <div class="hint">丸タップで購入済み／ゴミ箱アイコンで1件だけ削除</div>
+    <div class="hint" id="badge-debug" style="font-size:11px; opacity:0.7;">バッジ診断: 確認中...</div>
   </div>
 </div>
 
@@ -451,17 +452,19 @@ function escapeHtml(s){
 // ホーム画面アイコンに未購入件数のバッジを表示する(対応ブラウザのみ)
 function updateBadge(){
   const total = state.food.filter(x => !x.done).length + state.misc.filter(x => !x.done).length;
-  if('setAppBadge' in navigator){
-    try{
-      if(total > 0){
-        navigator.setAppBadge(total).catch(()=>{});
-      }else{
-        navigator.clearAppBadge().catch(()=>{});
-      }
-    }catch(e){
-      console.log('バッジ更新に対応していない環境です:', e);
-    }
+  const dbg = document.getElementById('badge-debug');
+
+  if(!('setAppBadge' in navigator)){
+    if(dbg) dbg.textContent = 'バッジ診断: この環境はBadging API非対応(setAppBadgeが存在しません)';
+    return;
   }
+
+  const action = total > 0 ? navigator.setAppBadge(total) : navigator.clearAppBadge();
+  action.then(() => {
+    if(dbg) dbg.textContent = `バッジ診断: API呼び出し成功(件数=${total})/ ${new Date().toLocaleTimeString()}`;
+  }).catch((e) => {
+    if(dbg) dbg.textContent = `バッジ診断: API呼び出し失敗 → ${e.name}: ${e.message}`;
+  });
 }
 
 // PWAとして正式インストールできるようにするためのサービスワーカー登録
