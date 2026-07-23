@@ -323,8 +323,10 @@
 
   <div class="footer-actions">
     <button class="clear-btn" id="clear-btn" onclick="clearDone()">🗑️ 買った物をまとめて削除</button>
+    <button class="clear-btn" id="notify-test-btn" onclick="testNotification()" style="background:linear-gradient(135deg,#C9B7EA,#B39DE0);">🔔 通知テストを送る</button>
     <div class="hint">丸タップで購入済み／ゴミ箱アイコンで1件だけ削除</div>
     <div class="hint" id="badge-debug" style="font-size:11px; opacity:0.7;">バッジ診断: 確認中...</div>
+    <div class="hint" id="notify-debug" style="font-size:11px; opacity:0.7;">通知診断: 未実行</div>
   </div>
 </div>
 
@@ -474,6 +476,50 @@ if('serviceWorker' in navigator){
       console.log('サービスワーカー登録に失敗しました:', e);
     });
   });
+}
+
+// 実際の通知を1回送ってみて、バッジ表示が連動するか確認するテスト
+async function testNotification(){
+  const ndbg = document.getElementById('notify-debug');
+  if(!('Notification' in window)){
+    ndbg.textContent = '通知診断: この環境は通知機能(Notification API)非対応';
+    return;
+  }
+
+  try{
+    let permission = Notification.permission;
+    if(permission === 'default'){
+      permission = await Notification.requestPermission();
+    }
+
+    if(permission !== 'granted'){
+      ndbg.textContent = `通知診断: 権限が許可されませんでした(状態=${permission})`;
+      return;
+    }
+
+    if(!('serviceWorker' in navigator)){
+      ndbg.textContent = '通知診断: サービスワーカー非対応のため通知を出せません';
+      return;
+    }
+
+    const reg = await navigator.serviceWorker.ready;
+    await reg.showNotification('あやかのお買い物メモ', {
+      body: 'テスト通知です。これが表示されたら通知は成功しています。',
+      icon: 'icon-180.png',
+      badge: 'icon-180.png',
+      tag: 'test-notification'
+    });
+
+    ndbg.textContent = `通知診断: 通知の送信に成功しました(${new Date().toLocaleTimeString()})。数秒後にバッジも再送信します`;
+
+    // 通知の後、少し待ってからバッジを再送信して連動するか確認
+    setTimeout(() => {
+      updateBadge();
+    }, 2000);
+
+  }catch(e){
+    ndbg.textContent = `通知診断: エラー発生 → ${e.name}: ${e.message}`;
+  }
 }
 
 loadState();
