@@ -1,1 +1,8 @@
-
+[{
+      "relation": ["delegate_permission/common.handle_all_urls"],
+      "target": {
+        "namespace": "android_app",
+        "package_name": "io.github.kazushikuroiwa.twa",
+        "sha256_cert_fingerprints": ["0A:87:39:3A:D9:65:4A:D6:81:26:E4:D1:DE:23:00:52:F2:1C:46:F3:88:5B:F3:94:70:FD:36:85:22:BB:7D:63"]
+      }
+    }]
