@@ -1,7 +1,39 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-<background:
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>あやかのお買い物メモ</title>
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" href="icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="お買い物メモ">
+<meta name="theme-color" content="#F192AA">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Zen+Maru+Gothic:wght@400;500;700;900&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --pink:#F8AEC1;
+    --pink-deep:#F192AA;
+    --lavender:#C9B7EA;
+    --lavender-deep:#B39DE0;
+    --cream:#FFF7F4;
+    --card:#FFFDFC;
+    --ink:#5A4453;
+    --ink-soft:#8A7686;
+    --line:#F1E3E9;
+    --done:#C8BCC5;
+    --shadow: 0 8px 24px rgba(226,150,175,0.18);
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    font-family:'Zen Maru Gothic', sans-serif;
+    background:
       radial-gradient(circle at 15% 0%, #FCE4EC 0%, transparent 55%),
       radial-gradient(circle at 100% 20%, #EDE3FA 0%, transparent 50%),
       var(--cream);
@@ -39,7 +71,6 @@
     color:var(--ink-soft);
   }
 
-  /* タブ */
   .tabs{
     display:flex;
     gap:10px;
@@ -78,7 +109,6 @@
     border-radius:12px;
   }
 
-  /* 入力エリア */
   .add-row{
     display:flex;
     gap:8px;
@@ -117,7 +147,6 @@
     background:linear-gradient(135deg, var(--lavender), var(--lavender-deep));
   }
 
-  /* リスト */
   .list-wrap{
     flex:1;
     background:var(--card);
@@ -207,7 +236,6 @@
     padding:4px 6px;
   }
 
-  /* 下部アクション */
   .footer-actions{
     margin-top:18px;
     display:flex;
@@ -291,7 +319,7 @@
 
   <div class="footer-actions">
     <button class="clear-btn" id="clear-btn" onclick="clearDone()">🗑️ 買った物をまとめて削除</button>
-    <button class="clear-btn" id="notify-test-btn" onclick="testNotification()" style="background:linear-gradient(135deg,#C9B7EA,#B39DE0);">🔔 通知テストを送る</button>
+    <button class="clear-btn" id="notify-test-btn" onclick="enableNotifications()" style="background:linear-gradient(135deg,#C9B7EA,#B39DE0);">🔔 通知を有効にする</button>
     <div class="hint">丸タップで購入済み／ゴミ箱アイコンで1件だけ削除</div>
     <div class="hint" id="badge-debug" style="font-size:11px; opacity:0.7;">バッジ診断: 確認中...</div>
     <div class="hint" id="notify-debug" style="font-size:11px; opacity:0.7;">通知診断: 未実行</div>
@@ -303,36 +331,168 @@
 <script>
 let state = { food: [], misc: [] };
 let currentCat = 'food';
+let idCounter = 1;
+let notifyEnabled = false;
 
-// ホーム画面アイコンに未購入件数のバッジを表示する(対応ブラウザのみ)
-function updateBadge(){
-  const total = state.food.filter(x => !x.done).length + state.misc.filter(x => !x.done).length;
-  const dbg = document.getElementById('badge-debug');
+function uid(){ return 'i' + (idCounter++) + '-' + Date.now(); }
 
-  if(!('setAppBadge' in navigator)){
-    if(dbg) dbg.textContent = 'バッジ診断: この環境はBadging API非対応(setAppBadgeが存在しません)';
+function loadState(){
+  try{
+    const raw = localStorage.getItem('shopping-state');
+    if(raw){
+      const parsed = JSON.parse(raw);
+      state.food = parsed.food || [];
+      state.misc = parsed.misc || [];
+      const maxId = [...state.food, ...state.misc].length;
+      idCounter = maxId + 1;
+    }
+  }catch(e){
+    console.log('初回起動、または読み込み失敗:', e);
+  }
+  notifyEnabled = ('Notification' in window && Notification.permission === 'granted');
+  updateNotifyButtonLabel();
+  render();
+}
+
+function saveState(){
+  try{
+    localStorage.setItem('shopping-state', JSON.stringify(state));
+  }catch(e){
+    console.error('保存に失敗しました:', e);
+    showToast('⚠️ 保存に失敗しました');
+  }
+}
+
+function switchTab(cat){
+  currentCat = cat;
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelector('.tab.' + (cat==='food' ? 'food' : 'misc')).classList.add('active');
+  document.body.classList.toggle('misc-mode', cat === 'misc');
+  document.getElementById('new-item').placeholder = cat === 'food' ? '食品を入力してね' : '雑貨を入力してね';
+  render();
+}
+
+function addItem(){
+  const input = document.getElementById('new-item');
+  const name = input.value.trim();
+  if(!name) return;
+  state[currentCat].push({ id: uid(), name: name, done: false });
+  input.value = '';
+  saveState();
+  render();
+  input.focus();
+}
+
+document.getElementById('new-item').addEventListener('keydown', function(e){
+  if(e.key === 'Enter') addItem();
+});
+
+function toggleDone(id){
+  const list = state[currentCat];
+  const it = list.find(x => x.id === id);
+  if(it){ it.done = !it.done; }
+  saveState();
+  render();
+}
+
+function deleteOne(id){
+  state[currentCat] = state[currentCat].filter(x => x.id !== id);
+  saveState();
+  render();
+}
+
+function clearDone(){
+  const doneCount = state[currentCat].filter(x => x.done).length;
+  if(doneCount === 0) return;
+  state[currentCat] = state[currentCat].filter(x => !x.done);
+  saveState();
+  render();
+  showToast(doneCount + '件 削除しました');
+}
+
+function showToast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(showToast._timer);
+  showToast._timer = setTimeout(() => t.classList.remove('show'), 1600);
+}
+
+function render(){
+  const list = state[currentCat];
+  const ul = document.getElementById('item-list');
+  document.getElementById('count-food').textContent = state.food.filter(x=>!x.done).length;
+  document.getElementById('count-misc').textContent = state.misc.filter(x=>!x.done).length;
+
+  const doneCount = list.filter(x => x.done).length;
+  document.getElementById('clear-btn').disabled = doneCount === 0;
+
+  syncBadgeAndNotification();
+
+  if(list.length === 0){
+    ul.innerHTML = '<div class="empty"><span class="big">🌸</span>まだ何もありません<br>下の欄から追加してね</div>';
     return;
   }
 
-  const action = total > 0 ? navigator.setAppBadge(total) : navigator.clearAppBadge();
-  action.then(() => {
-    if(dbg) dbg.textContent = `バッジ診断: API呼び出し成功(件数=${total})/ ${new Date().toLocaleTimeString()}`;
-  }).catch((e) => {
-    if(dbg) dbg.textContent = `バッジ診断: API呼び出し失敗 → ${e.name}: ${e.message}`;
-  });
+  ul.innerHTML = list.map(it => `
+    <li class="item ${it.done ? 'done' : ''}" onclick="toggleDone('${it.id}')">
+      <span class="basket">${it.done ? '✓' : ''}</span>
+      <span class="item-name">${escapeHtml(it.name)}</span>
+      <button class="del-one" onclick="event.stopPropagation(); deleteOne('${it.id}')">✕</button>
+    </li>
+  `).join('');
 }
 
-// PWAとして正式インストールできるようにするためのサービスワーカー登録
-if('serviceWorker' in navigator){
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('sw.js').catch(e => {
-      console.log('サービスワーカー登録に失敗しました:', e);
-    });
-  });
+function escapeHtml(s){
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
 }
 
-// 実際の通知を1回送ってみて、バッジ表示が連動するか確認するテスト
-async function testNotification(){
+async function syncBadgeAndNotification(){
+  const total = state.food.filter(x => !x.done).length + state.misc.filter(x => !x.done).length;
+  const dbg = document.getElementById('badge-debug');
+
+  if(!('serviceWorker' in navigator) || !('Notification' in window)){
+    if(dbg) dbg.textContent = 'バッジ診断: この環境は通知/バッジ機能に非対応です';
+    return;
+  }
+
+  if(Notification.permission !== 'granted'){
+    if(dbg) dbg.textContent = 'バッジ診断: 通知が未許可です。下のボタンで有効にしてください';
+    return;
+  }
+
+  try{
+    const reg = await navigator.serviceWorker.ready;
+
+    if(total > 0){
+      await reg.showNotification('あやかのお買い物メモ', {
+        body: `未購入 ${total}件あります`,
+        icon: 'icon-180.png',
+        badge: 'icon-180.png',
+        tag: 'shopping-badge',
+        renotify: false,
+        silent: true
+      });
+      if(dbg) dbg.textContent = `バッジ診断: 常駐通知を更新しました(残り${total}件) / ${new Date().toLocaleTimeString()}`;
+    } else {
+      const existing = await reg.getNotifications({ tag: 'shopping-badge' });
+      existing.forEach(n => n.close());
+      if(dbg) dbg.textContent = `バッジ診断: メモが空のため通知を消しました / ${new Date().toLocaleTimeString()}`;
+    }
+  }catch(e){
+    if(dbg) dbg.textContent = `バッジ診断: エラー -> ${e.name}: ${e.message}`;
+  }
+}
+
+function updateNotifyButtonLabel(){
+  const btn = document.getElementById('notify-test-btn');
+  if(!btn) return;
+  btn.textContent = notifyEnabled ? '🔔 通知は有効です' : '🔔 通知を有効にする';
+}
+
+async function enableNotifications(){
   const ndbg = document.getElementById('notify-debug');
   if(!('Notification' in window)){
     ndbg.textContent = '通知診断: この環境は通知機能(Notification API)非対応';
@@ -347,32 +507,27 @@ async function testNotification(){
 
     if(permission !== 'granted'){
       ndbg.textContent = `通知診断: 権限が許可されませんでした(状態=${permission})`;
+      notifyEnabled = false;
+      updateNotifyButtonLabel();
       return;
     }
 
-    if(!('serviceWorker' in navigator)){
-      ndbg.textContent = '通知診断: サービスワーカー非対応のため通知を出せません';
-      return;
-    }
-
-    const reg = await navigator.serviceWorker.ready;
-    await reg.showNotification('あやかのお買い物メモ', {
-      body: 'テスト通知です。これが表示されたら通知は成功しています。',
-      icon: 'icon-180.png',
-      badge: 'icon-180.png',
-      tag: 'test-notification'
-    });
-
-    ndbg.textContent = `通知診断: 通知の送信に成功しました(${new Date().toLocaleTimeString()})。数秒後にバッジも再送信します`;
-
-    // 通知の後、少し待ってからバッジを再送信して連動するか確認
-    setTimeout(() => {
-      updateBadge();
-    }, 2000);
+    notifyEnabled = true;
+    updateNotifyButtonLabel();
+    ndbg.textContent = `通知診断: 通知が有効になりました(${new Date().toLocaleTimeString()})`;
+    syncBadgeAndNotification();
 
   }catch(e){
     ndbg.textContent = `通知診断: エラー発生 → ${e.name}: ${e.message}`;
   }
+}
+
+if('serviceWorker' in navigator){
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').catch(e => {
+      console.log('サービスワーカー登録に失敗しました:', e);
+    });
+  });
 }
 
 loadState();
